@@ -19,7 +19,8 @@
         "hop_length": 200,
         "win_length": 400,
         "mel_fmin": 0.0,
-        "mel_fmax": 8000.0
+        "mel_fmax": 8000.0,
+        "n_mel_channels": 128
     },
     "dist_config": {
         "dist_backend": "nccl",
