@@ -30,14 +30,11 @@ import argparse
 import json
 import torch
 import torch.utils.data
-import sys
 from scipy.io.wavfile import read
+import numpy as np
 
-# We're using the audio processing from TacoTron2 to make sure it matches
-sys.path.insert(0, 'tacotron2')
-from tacotron2.layers import TacotronSTFT
+from spectrograms import load_wav, extract_spectrogram
 
-MAX_WAV_VALUE = 32768.0
 
 def files_to_list(filename):
     """
@@ -48,6 +45,7 @@ def files_to_list(filename):
 
     files = [f.rstrip() for f in files]
     return files
+
 
 def load_wav_to_torch(full_path):
     """
@@ -68,42 +66,43 @@ class Mel2Samp(torch.utils.data.Dataset):
         self.audio_files = files_to_list(training_files)
         random.seed(1234)
         random.shuffle(self.audio_files)
-        self.stft = TacotronSTFT(filter_length=filter_length,
-                                 hop_length=hop_length,
-                                 win_length=win_length,
-                                 sampling_rate=sampling_rate,
-                                 mel_fmin=mel_fmin,
-                                 mel_fmax=mel_fmax,
-                                 n_mel_channels=n_mel_channels)
         self.segment_length = segment_length
         self.sampling_rate = sampling_rate
+        self.eps = np.finfo(float).eps
 
-    def get_mel(self, audio):
-        audio_norm = audio / MAX_WAV_VALUE
-        audio_norm = audio_norm.unsqueeze(0)
-        audio_norm = torch.autograd.Variable(audio_norm, requires_grad=False)
-        melspec = self.stft.mel_spectrogram(audio_norm)
-        melspec = torch.squeeze(melspec, 0)
+    def normalize_audio(self, audio):
+        signal = audio.astype('float')
+        signal = (signal - signal.mean()) / (signal.std() + self.eps)
+        return signal
+
+    def get_mel(self, audio, sampling_rate):
+        melspec = extract_spectrogram(audio, sampling_rate)
         return melspec
 
     def __getitem__(self, index):
         # Read audio
-        filename = self.audio_files[index]
-        audio, sampling_rate = load_wav_to_torch(filename)
+        audiofile = self.audio_files[index]
+        audio, sampling_rate = load_wav(audiofile)
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} SR doesn't match target {} SR".format(
                 sampling_rate, self.sampling_rate))
 
         # Take segment
-        if audio.size(0) >= self.segment_length:
-            max_audio_start = audio.size(0) - self.segment_length
+        if audio.shape[0] >= self.segment_length:
+            max_audio_start = audio.shape[0] - self.segment_length
             audio_start = random.randint(0, max_audio_start)
             audio = audio[audio_start:audio_start+self.segment_length]
         else:
-            audio = torch.nn.functional.pad(audio, (0, self.segment_length - audio.size(0)), 'constant').data
+            audio = torch.nn.functional.pad(
+                audio,
+                (0, self.segment_length - audio.shape[0]),
+                'constant').data
 
-        mel = self.get_mel(audio)
-        audio = audio / MAX_WAV_VALUE
+        audio = self.normalize_audio(audio)
+        mel = self.get_mel(audio, sampling_rate)
+
+        audio = torch.from_numpy(audio).float()
+        mel = torch.from_numpy(mel).float()
 
         return (mel, audio)
 
@@ -137,8 +136,10 @@ if __name__ == "__main__":
         os.chmod(args.output_dir, 0o775)
 
     for filepath in filepaths:
-        audio, sr = load_wav_to_torch(filepath)
-        melspectrogram = mel2samp.get_mel(audio)
+        audio, sr = load_wav(filepath)
+        audio = mel2samp.normalize_audio(audio)
+        melspectrogram = mel2samp.get_mel(audio, sr)
+        melspectrogram = torch.from_numpy(melspectrogram).float()
         filename = os.path.basename(filepath)
         new_filepath = args.output_dir + '/' + filename + '.pt'
         print(new_filepath)
