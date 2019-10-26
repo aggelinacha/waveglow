@@ -68,11 +68,11 @@ class Mel2Samp(torch.utils.data.Dataset):
         random.shuffle(self.audio_files)
         self.segment_length = segment_length
         self.sampling_rate = sampling_rate
-        self.eps = np.finfo(float).eps
 
     def normalize_audio(self, audio):
+        C = 0.00001
         signal = audio.astype('float')
-        signal = (signal - signal.mean()) / (signal.std() + self.eps)
+        signal = (signal - signal.mean()) / (signal.std() + C)
         return signal
 
     def get_mel(self, audio, sampling_rate):
@@ -101,8 +101,8 @@ class Mel2Samp(torch.utils.data.Dataset):
         audio = self.normalize_audio(audio)
         mel = self.get_mel(audio, sampling_rate)
 
-        audio = torch.from_numpy(audio).float()
-        mel = torch.from_numpy(mel).float()
+        audio = torch.from_numpy(audio)
+        mel = torch.from_numpy(mel)
 
         return (mel, audio)
 
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         audio, sr = load_wav(filepath)
         audio = mel2samp.normalize_audio(audio)
         melspectrogram = mel2samp.get_mel(audio, sr)
-        melspectrogram = torch.from_numpy(melspectrogram).float()
+        melspectrogram = torch.from_numpy(melspectrogram)
         filename = os.path.basename(filepath)
         new_filepath = args.output_dir + '/' + filename + '.pt'
         print(new_filepath)
