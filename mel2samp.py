@@ -30,6 +30,7 @@ import argparse
 import json
 import torch
 import torch.utils.data
+from tqdm import tqdm
 from scipy.io.wavfile import read
 import numpy as np
 
@@ -68,6 +69,30 @@ class Mel2Samp(torch.utils.data.Dataset):
         random.shuffle(self.audio_files)
         self.segment_length = segment_length
         self.sampling_rate = sampling_rate
+        self.spec_audio = []
+
+        for audiofile in tqdm(self.audio_files, desc="Extracting spectrograms"):
+            # Read audio
+            audio, sampling_rate = load_wav(audiofile)
+            if sampling_rate != self.sampling_rate:
+                raise ValueError("{} SR doesn't match target {} SR".format(
+                    sampling_rate, self.sampling_rate))
+
+            # Take segment
+            if audio.shape[0] >= self.segment_length:
+                max_audio_start = audio.shape[0] - self.segment_length
+                audio_start = random.randint(0, max_audio_start)
+                audio = audio[audio_start:audio_start+self.segment_length]
+            else:
+                audio = torch.nn.functional.pad(
+                    audio,
+                    (0, self.segment_length - audio.shape[0]),
+                    'constant').data
+
+            audio = self.normalize_audio(audio)
+            mel = self.get_mel(audio, sampling_rate)
+
+            self.spec_audio.append((audio, mel))
 
     def normalize_audio(self, audio):
         C = 0.00001
@@ -80,27 +105,7 @@ class Mel2Samp(torch.utils.data.Dataset):
         return melspec
 
     def __getitem__(self, index):
-        # Read audio
-        audiofile = self.audio_files[index]
-        audio, sampling_rate = load_wav(audiofile)
-        if sampling_rate != self.sampling_rate:
-            raise ValueError("{} SR doesn't match target {} SR".format(
-                sampling_rate, self.sampling_rate))
-
-        # Take segment
-        if audio.shape[0] >= self.segment_length:
-            max_audio_start = audio.shape[0] - self.segment_length
-            audio_start = random.randint(0, max_audio_start)
-            audio = audio[audio_start:audio_start+self.segment_length]
-        else:
-            audio = torch.nn.functional.pad(
-                audio,
-                (0, self.segment_length - audio.shape[0]),
-                'constant').data
-
-        audio = self.normalize_audio(audio)
-        mel = self.get_mel(audio, sampling_rate)
-
+        audio, mel = self.spec_audio[index]
         audio = torch.from_numpy(audio)
         mel = torch.from_numpy(mel)
 
