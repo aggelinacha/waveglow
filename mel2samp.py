@@ -69,7 +69,8 @@ class Mel2Samp(torch.utils.data.Dataset):
         random.shuffle(self.audio_files)
         self.segment_length = segment_length
         self.sampling_rate = sampling_rate
-        self.spec_audio = []
+        self.specs = []
+        self.signals = []
 
         for audiofile in tqdm(self.audio_files, desc="Extracting spectrograms"):
             # Read audio
@@ -91,8 +92,9 @@ class Mel2Samp(torch.utils.data.Dataset):
 
             audio = self.normalize_audio(audio)
             mel = self.get_mel(audio, sampling_rate)
-
-            self.spec_audio.append((audio, mel))
+            self.signals.append(audio)
+            self.specs.append(mel)
+        self.specs = self.normalize_spectrograms(np.array(self.specs))
 
     def normalize_audio(self, audio):
         C = 0.00001
@@ -100,15 +102,19 @@ class Mel2Samp(torch.utils.data.Dataset):
         signal = (signal - signal.mean()) / (signal.std() + C)
         return signal
 
+    def normalize_spectrograms(self, data):
+        mean = data.mean()
+        std = data.std()
+        data_norm = (data - mean) / std
+        return data_norm
+
     def get_mel(self, audio, sampling_rate):
         melspec = extract_spectrogram(audio, sampling_rate)
         return melspec
 
     def __getitem__(self, index):
-        audio, mel = self.spec_audio[index]
-        audio = torch.from_numpy(audio)
-        mel = torch.from_numpy(mel)
-
+        audio = torch.from_numpy(self.signals[index])
+        mel = torch.from_numpy(self.specs[index])
         return (mel, audio)
 
     def __len__(self):
